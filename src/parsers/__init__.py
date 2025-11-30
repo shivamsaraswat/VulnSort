@@ -1,7 +1,16 @@
-"""Scanner format parsers."""
+"""
+Scanner format parsers.
+
+Supports:
+- Trivy (native JSON format)
+- Grype (native JSON format)
+- SARIF (SARIF 2.1.0 standard)
+"""
 
 from .grype import extract_cve_ids as extract_grype_cves
 from .grype import process as process_grype
+from .sarif import extract_cve_ids as extract_sarif_cves
+from .sarif import process as process_sarif
 from .trivy import extract_cve_ids as extract_trivy_cves
 from .trivy import process as process_trivy
 
@@ -10,6 +19,8 @@ __all__ = [
     "process_trivy",
     "extract_grype_cves",
     "process_grype",
+    "extract_sarif_cves",
+    "process_sarif",
     "detect_scanner_format",
 ]
 
@@ -25,11 +36,19 @@ def detect_scanner_format(data: dict) -> str | None:
         Scanner name or None if unknown.
     """
 
-    # Trivy detection
+    # SARIF detection (SARIF 2.1.0 standard)
+    if "$schema" in data and "sarif" in data.get("$schema", "").lower():
+        return "sarif"
+    if "version" in data and "runs" in data and isinstance(data.get("runs"), list):
+        # Also detect SARIF by structure (has version and runs array)
+        if any(run.get("tool", {}).get("driver") for run in data.get("runs", [])):
+            return "sarif"
+
+    # Trivy detection (native JSON format)
     if "SchemaVersion" in data and "Results" in data:
         return "trivy"
 
-    # Grype detection
+    # Grype detection (native JSON format)
     if "matches" in data and "source" in data:
         return "grype"
 

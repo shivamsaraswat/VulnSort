@@ -3,8 +3,9 @@
 VulnSort - Prioritize vulnerabilities based on CISA KEV and EPSS scores.
 
 Supported scanner formats:
-- Trivy (JSON)
-- Grype (JSON)
+- Trivy (JSON or SARIF)
+- Grype (JSON or SARIF)
+- Any SARIF 2.1.0 compatible scanner output
 """
 
 import argparse
@@ -14,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from .parsers import (detect_scanner_format, extract_grype_cves,
-                      extract_trivy_cves, process_grype, process_trivy)
+                      extract_sarif_cves, extract_trivy_cves, process_grype,
+                      process_sarif, process_trivy)
 from .utils import fetch_epss_scores, load_kev_data
 
 # Default path to local KEV data (relative to repo root)
@@ -47,7 +49,7 @@ def process_vulnerabilities(input_file: Path, output_file: Path | None, kev_path
     # Detect scanner format
     scanner = detect_scanner_format(data)
     if scanner is None:
-        print("Error: Unknown scanner format. Supported formats: Trivy, Grype", file=sys.stderr)
+        print("Error: Unknown scanner format. Supported formats: Trivy, Grype, SARIF", file=sys.stderr)
         return 1
 
     print(f"Detected scanner format: {scanner}", file=sys.stderr)
@@ -57,6 +59,8 @@ def process_vulnerabilities(input_file: Path, output_file: Path | None, kev_path
         cve_ids = extract_trivy_cves(data)
     elif scanner == "grype":
         cve_ids = extract_grype_cves(data)
+    elif scanner == "sarif":
+        cve_ids = extract_sarif_cves(data)
     else:
         cve_ids = []
 
@@ -76,6 +80,8 @@ def process_vulnerabilities(input_file: Path, output_file: Path | None, kev_path
         result = process_trivy(data, kev_cves, epss_scores)
     elif scanner == "grype":
         result = process_grype(data, kev_cves, epss_scores)
+    elif scanner == "sarif":
+        result = process_sarif(data, kev_cves, epss_scores)
     else:
         result = data
 
@@ -126,8 +132,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Supported scanner formats:
-  - Trivy (auto-detected)
-  - Grype (auto-detected)
+  - Trivy (JSON or SARIF, auto-detected)
+  - Grype (JSON or SARIF, auto-detected)
+  - Any SARIF 2.1.0 compatible output
 
 Priority levels:
   - critical: In CISA KEV (actively exploited)
@@ -138,13 +145,14 @@ Priority levels:
 
 Examples:
   python -m src.vulnsort -i scan-results.json
+  python -m src.vulnsort -i scan-results.sarif -o prioritized.sarif
   python -m src.vulnsort -i scan-results.json -o prioritized.json
   python -m src.vulnsort -i scan-results.json -k /path/to/kev.json
         """,
     )
 
-    parser.add_argument("-i", "--input", required=True, type=Path, help="Input JSON file from vulnerability scanner")
-    parser.add_argument("-o", "--output", required=False, type=Path, help="Output JSON file (default: stdout)")
+    parser.add_argument("-i", "--input", required=True, type=Path, help="Input file from vulnerability scanner (JSON or SARIF)")
+    parser.add_argument("-o", "--output", required=False, type=Path, help="Output file (default: stdout)")
     parser.add_argument("-k", "--kev-path", required=False, type=Path, help="Path to CISA KEV JSON file")
 
     return parser.parse_args()

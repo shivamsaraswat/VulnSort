@@ -8,7 +8,7 @@ branding:
 
 inputs:
   scan-results-file:
-    description: 'Path to the vulnerability scan results JSON file (Trivy or Grype format)'
+    description: 'Path to the vulnerability scan results file (Trivy, Grype, or SARIF format)'
     required: true
   output-file:
     description: 'Path to write the prioritized results (default: overwrites input file)'
