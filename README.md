@@ -1,6 +1,6 @@
 # VulnSort
 
-Prioritize vulnerabilities based on **CISA KEV** and **EPSS** scores.
+A GitHub Action and CLI tool that prioritizes vulnerability scan results based on real-world exploitability using **CISA KEV** and **EPSS** scores instead of CVSS.
 
 ## What it does
 
