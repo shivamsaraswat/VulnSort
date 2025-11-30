@@ -1,0 +1,116 @@
+name: 'VulnSort'
+description: 'Prioritize vulnerabilities based on CISA KEV and EPSS scores'
+author: 'VulnSort'
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  scan-results-file:
+    description: 'Path to the vulnerability scan results JSON file (Trivy or Grype format)'
+    required: true
+  output-file:
+    description: 'Path to write the prioritized results (default: overwrites input file)'
+    required: false
+    default: ''
+  kev-path:
+    description: 'Path to CISA KEV JSON file (default: uses bundled data)'
+    required: false
+    default: ''
+
+outputs:
+  critical-count:
+    description: 'Number of critical priority vulnerabilities (in CISA KEV catalog)'
+    value: ${{ steps.vulnsort.outputs.critical }}
+  high-count:
+    description: 'Number of high priority vulnerabilities (EPSS >= 70%)'
+    value: ${{ steps.vulnsort.outputs.high }}
+  medium-count:
+    description: 'Number of medium priority vulnerabilities (EPSS >= 30%)'
+    value: ${{ steps.vulnsort.outputs.medium }}
+  low-count:
+    description: 'Number of low priority vulnerabilities (EPSS >= 10%)'
+    value: ${{ steps.vulnsort.outputs.low }}
+  info-count:
+    description: 'Number of info priority vulnerabilities (EPSS < 10%)'
+    value: ${{ steps.vulnsort.outputs.info }}
+  output-file:
+    description: 'Path to the output file with prioritized results'
+    value: ${{ steps.vulnsort.outputs.output_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install requests>=2.32.0
+
+    - name: Run VulnSort
+      id: vulnsort
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        INPUT_FILE: ${{ inputs.scan-results-file }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        KEV_PATH: ${{ inputs.kev-path }}
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+      run: |
+        # Determine output file (use absolute paths)
+        if [ -z "$OUTPUT_FILE" ]; then
+          OUTPUT_FILE="$GITHUB_WORKSPACE/$INPUT_FILE"
+        else
+          OUTPUT_FILE="$GITHUB_WORKSPACE/$OUTPUT_FILE"
+        fi
+        INPUT_FILE="$GITHUB_WORKSPACE/$INPUT_FILE"
+
+        # Build command (run as module for relative imports)
+        CMD="python -m src.vulnsort -i \"$INPUT_FILE\" -o \"$OUTPUT_FILE\""
+
+        if [ -n "$KEV_PATH" ]; then
+          CMD="$CMD -k \"$GITHUB_WORKSPACE/$KEV_PATH\""
+        fi
+
+        # Run vulnsort and capture output
+        OUTPUT=$(eval $CMD 2>&1) || {
+          echo "VulnSort failed:"
+          echo "$OUTPUT"
+          exit 1
+        }
+
+        echo "$OUTPUT"
+
+        # Parse counts from output
+        CRITICAL=$(echo "$OUTPUT" | grep -oP 'Critical \(KEV\):\s+\K\d+' || echo "0")
+        HIGH=$(echo "$OUTPUT" | grep -oP 'High \(EPSS>=70%\):\s+\K\d+' || echo "0")
+        MEDIUM=$(echo "$OUTPUT" | grep -oP 'Medium \(EPSS>=30%\):\s+\K\d+' || echo "0")
+        LOW=$(echo "$OUTPUT" | grep -oP 'Low \(EPSS>=10%\):\s+\K\d+' || echo "0")
+        INFO=$(echo "$OUTPUT" | grep -oP 'Info \(EPSS<10%\):\s+\K\d+' || echo "0")
+
+        # Set outputs
+        echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high=$HIGH" >> $GITHUB_OUTPUT
+        echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+        echo "low=$LOW" >> $GITHUB_OUTPUT
+        echo "info=$INFO" >> $GITHUB_OUTPUT
+        echo "output_file=$OUTPUT_FILE" >> $GITHUB_OUTPUT
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## 🛡️ VulnSort Priority Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Priority | Count | Description |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|-------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔴 Critical | ${{ steps.vulnsort.outputs.critical }} | In CISA KEV (actively exploited) |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟠 High | ${{ steps.vulnsort.outputs.high }} | EPSS score ≥ 70% |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟡 Medium | ${{ steps.vulnsort.outputs.medium }} | EPSS score ≥ 30% |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟢 Low | ${{ steps.vulnsort.outputs.low }} | EPSS score ≥ 10% |" >> $GITHUB_STEP_SUMMARY
+        echo "| ⚪ Info | ${{ steps.vulnsort.outputs.info }} | EPSS score < 10% |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Output file: \`${{ steps.vulnsort.outputs.output_file }}\`" >> $GITHUB_STEP_SUMMARY
