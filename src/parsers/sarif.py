@@ -31,6 +31,68 @@ PRIORITY_TO_SECURITY_SEVERITY = {
 }
 
 
+def _format_vulnsort_text(priority_info: dict) -> str:
+    """
+    Format vulnsort priority info as plain text.
+
+    Args:
+        priority_info: Dictionary containing priority information.
+
+    Returns:
+        Formatted string with vulnsort priority info.
+    """
+
+    priority = priority_info["priority"].upper()
+    reason = priority_info["reason"]
+    in_kev = priority_info["in_kev"]
+    epss = priority_info["epss_score"]
+
+    lines = [
+        "",
+        "--- VulnSort Priority ---",
+        f"Priority: {priority}",
+        f"Reason: {reason}",
+        f"In CISA KEV: {'Yes' if in_kev else 'No'}",
+    ]
+    if epss is not None:
+        lines.append(f"EPSS Score: {epss:.2%}")
+
+    return "\n".join(lines)
+
+
+def _format_vulnsort_markdown(priority_info: dict) -> str:
+    """
+    Format vulnsort priority info as markdown.
+
+    Args:
+        priority_info: Dictionary containing priority information.
+
+    Returns:
+        Formatted string with vulnsort priority info.
+    """
+
+    priority = priority_info["priority"].upper()
+    reason = priority_info["reason"]
+    in_kev = priority_info["in_kev"]
+    epss = priority_info["epss_score"]
+
+    epss_str = f"{epss:.2%}" if epss is not None else "N/A"
+    kev_str = "✅ Yes" if in_kev else "❌ No"
+
+    return f"""
+
+---
+**🛡️ VulnSort Priority: {priority}**
+
+| Metric | Value |
+| --- | --- |
+| Priority | **{priority}** |
+| In CISA KEV | {kev_str} |
+| EPSS Score | {epss_str} |
+
+*{reason}*"""
+
+
 def extract_cve_ids(data: dict) -> list[str]:
     """
     Extract CVE IDs from SARIF format.
@@ -106,6 +168,13 @@ def process(data: dict, kev_cves: set[str], epss_scores: dict[str, float]) -> di
                     rule["defaultConfiguration"] = {}
                 rule["defaultConfiguration"]["level"] = PRIORITY_TO_SARIF_LEVEL[priority]
 
+                # Append vulnsort reasoning to help text
+                if "help" in rule:
+                    if "text" in rule["help"]:
+                        rule["help"]["text"] += _format_vulnsort_text(priority_info)
+                    if "markdown" in rule["help"]:
+                        rule["help"]["markdown"] += _format_vulnsort_markdown(priority_info)
+
         # Update results with vulnsort severity
         for result in run.get("results", []):
             rule_id = result.get("ruleId", "")
@@ -121,5 +190,9 @@ def process(data: dict, kev_cves: set[str], epss_scores: dict[str, float]) -> di
 
                 # Update result level for GitHub Security tab
                 result["level"] = PRIORITY_TO_SARIF_LEVEL[priority]
+
+                # Append vulnsort reasoning to message text
+                if "message" in result and "text" in result["message"]:
+                    result["message"]["text"] += f" [VulnSort: {priority.upper()} - {priority_info['reason']}]"
 
     return data
