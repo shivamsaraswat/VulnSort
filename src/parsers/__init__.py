@@ -8,18 +8,24 @@ Supports:
 """
 
 from .grype import extract_cve_ids as extract_grype_cves
+from .grype import extract_original_severities as extract_grype_severities
 from .grype import process as process_grype
 from .sarif import extract_cve_ids as extract_sarif_cves
+from .sarif import extract_original_severities as extract_sarif_severities
 from .sarif import process as process_sarif
 from .trivy import extract_cve_ids as extract_trivy_cves
+from .trivy import extract_original_severities as extract_trivy_severities
 from .trivy import process as process_trivy
 
 __all__ = [
     "extract_trivy_cves",
+    "extract_trivy_severities",
     "process_trivy",
     "extract_grype_cves",
+    "extract_grype_severities",
     "process_grype",
     "extract_sarif_cves",
+    "extract_sarif_severities",
     "process_sarif",
     "detect_scanner_format",
 ]

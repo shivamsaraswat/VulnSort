@@ -12,11 +12,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from .parsers import (detect_scanner_format, extract_grype_cves,
-                      extract_sarif_cves, extract_trivy_cves, process_grype,
-                      process_sarif, process_trivy)
+                      extract_grype_severities, extract_sarif_cves,
+                      extract_sarif_severities, extract_trivy_cves,
+                      extract_trivy_severities, process_grype, process_sarif,
+                      process_trivy)
 from .utils import fetch_epss_scores, load_kev_data
 
 # Default path to local KEV data (relative to repo root)
@@ -54,17 +55,22 @@ def process_vulnerabilities(input_file: Path, output_file: Path | None, kev_path
 
     print(f"Detected scanner format: {scanner}", file=sys.stderr)
 
-    # Extract CVE IDs based on scanner format
+    # Extract CVE IDs and original severities based on scanner format
     if scanner == "trivy":
         cve_ids = extract_trivy_cves(data)
+        original_severities = extract_trivy_severities(data)
     elif scanner == "grype":
         cve_ids = extract_grype_cves(data)
+        original_severities = extract_grype_severities(data)
     elif scanner == "sarif":
         cve_ids = extract_sarif_cves(data)
+        original_severities = extract_sarif_severities(data)
     else:
         cve_ids = []
+        original_severities = {}
 
-    print(f"Found {len(cve_ids)} unique CVEs", file=sys.stderr)
+    total_occurrences = sum(original_severities.values())
+    print(f"Found {len(cve_ids)} unique CVEs ({total_occurrences} total occurrences)", file=sys.stderr)
 
     if not cve_ids:
         print("Warning: No CVEs found in input file", file=sys.stderr)
@@ -85,31 +91,65 @@ def process_vulnerabilities(input_file: Path, output_file: Path | None, kev_path
     else:
         result = data
 
-    # Count priorities
+    # Count priorities from all occurrences (total)
     priority_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
 
-    def count_priorities(obj: Any) -> None:
-        if isinstance(obj, dict):
-            if "vulnsort" in obj:
-                priority = obj["vulnsort"].get("priority", "info")
-                priority_counts[priority] = priority_counts.get(priority, 0) + 1
-            for value in obj.values():
-                count_priorities(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                count_priorities(item)
+    if scanner == "sarif":
+        # Count from results (all occurrences), looking up priority from rules
+        for run in result.get("runs", []):
+            # Build map of rule_id -> priority from rules
+            rule_priorities: dict[str, str] = {}
+            driver = run.get("tool", {}).get("driver", {})
+            for rule in driver.get("rules", []):
+                rule_id = rule.get("id", "")
+                vulnsort = rule.get("properties", {}).get("vulnsort")
+                if vulnsort:
+                    rule_priorities[rule_id] = vulnsort.get("priority", "info")
 
-    count_priorities(result)
+            # Count all results using the priority from their rule
+            for res in run.get("results", []):
+                rule_id = res.get("ruleId", "")
+                if rule_id in rule_priorities:
+                    priority = rule_priorities[rule_id]
+                    priority_counts[priority] = priority_counts.get(priority, 0) + 1
+    elif scanner == "trivy":
+        for res in result.get("Results", []):
+            for vuln in res.get("Vulnerabilities", []):
+                vulnsort = vuln.get("vulnsort")
+                if vulnsort:
+                    priority = vulnsort.get("priority", "info")
+                    priority_counts[priority] = priority_counts.get(priority, 0) + 1
+    elif scanner == "grype":
+        for match in result.get("matches", []):
+            vulnsort = match.get("vulnsort")
+            if vulnsort:
+                priority = vulnsort.get("priority", "info")
+                priority_counts[priority] = priority_counts.get(priority, 0) + 1
 
     # Print summary
     print("\n" + "=" * 50, file=sys.stderr)
+    print("Scanner Original Severity Counts", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
+    # Display original severities in order: CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
+    severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+    for sev in severity_order:
+        if sev in original_severities:
+            print(f"  {sev.capitalize():12} {original_severities[sev]}", file=sys.stderr)
+    # Show any other severities not in the standard order
+    for sev, count in sorted(original_severities.items()):
+        if sev not in severity_order:
+            print(f"  {sev.capitalize():12} {count}", file=sys.stderr)
+    if not original_severities:
+        print("  (no severity data found)", file=sys.stderr)
+
+    print("\n" + "=" * 50, file=sys.stderr)
     print("VulnSort Priority Summary", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
-    print(f"  Critical (KEV):    {priority_counts['critical']}", file=sys.stderr)
-    print(f"  High (EPSS>=70%):  {priority_counts['high']}", file=sys.stderr)
+    print(f"  Critical (KEV):     {priority_counts['critical']}", file=sys.stderr)
+    print(f"  High (EPSS>=70%):   {priority_counts['high']}", file=sys.stderr)
     print(f"  Medium (EPSS>=30%): {priority_counts['medium']}", file=sys.stderr)
-    print(f"  Low (EPSS>=10%):   {priority_counts['low']}", file=sys.stderr)
-    print(f"  Info (EPSS<10%):   {priority_counts['info']}", file=sys.stderr)
+    print(f"  Low (EPSS>=10%):    {priority_counts['low']}", file=sys.stderr)
+    print(f"  Info (EPSS<10%):    {priority_counts['info']}", file=sys.stderr)
     print("=" * 50, file=sys.stderr)
 
     # Output result

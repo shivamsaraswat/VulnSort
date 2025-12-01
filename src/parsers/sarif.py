@@ -127,6 +127,52 @@ def extract_cve_ids(data: dict) -> list[str]:
     return list(set(cve_ids))
 
 
+def extract_original_severities(data: dict) -> dict[str, int]:
+    """
+    Extract original severity counts from SARIF format (all occurrences).
+
+    Severities are found in rules, but we count all results (occurrences).
+    - runs[].tool.driver.rules[].properties.tags (e.g., "CRITICAL", "HIGH", "MEDIUM", "LOW")
+    - runs[].results[] for occurrence counts
+
+    Args:
+        data: The parsed SARIF JSON data.
+
+    Returns:
+        Dictionary of severity counts (e.g., {"CRITICAL": 5, "HIGH": 10, ...}).
+    """
+
+    severity_keywords = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
+
+    # Build map of rule_id -> severity from rules
+    rule_severities: dict[str, str] = {}
+    for run in data.get("runs", []):
+        driver = run.get("tool", {}).get("driver", {})
+        for rule in driver.get("rules", []):
+            rule_id = rule.get("id", "")
+            if not rule_id.startswith("CVE-"):
+                continue
+
+            # Check tags for severity
+            tags = rule.get("properties", {}).get("tags", [])
+            for tag in tags:
+                tag_upper = tag.upper()
+                if tag_upper in severity_keywords:
+                    rule_severities[rule_id] = tag_upper
+                    break
+
+    # Count all results (occurrences) using the severity from their rule
+    severity_counts: dict[str, int] = {}
+    for run in data.get("runs", []):
+        for result in run.get("results", []):
+            rule_id = result.get("ruleId", "")
+            if rule_id in rule_severities:
+                severity = rule_severities[rule_id]
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+    return severity_counts
+
+
 def process(data: dict, kev_cves: set[str], epss_scores: dict[str, float]) -> dict:
     """
     Process SARIF JSON and update severity fields based on vulnsort priority.
