@@ -1,7 +1,7 @@
 {
-  "last_fetch": "2026-04-30T08:20:55.017379Z",
-  "catalog_version": "2026.04.28",
-  "date_released": "2026-04-28T17:29:22.212Z",
-  "vulnerability_count": 1585,
-  "data_updated": false
+  "last_fetch": "2026-05-01T08:09:56.259450Z",
+  "catalog_version": "2026.04.30",
+  "date_released": "2026-04-30T16:30:36.316Z",
+  "vulnerability_count": 1586,
+  "data_updated": true
 }
